@@ -1,4 +1,6 @@
 
+export type PositionUnit = 'percent' | 'px';
+
 export interface TileData {
   id: number;
   imageUrl: string | null;
@@ -6,6 +8,7 @@ export interface TileData {
   scale: number;
   positionX: number;
   positionY: number;
+  positionUnit?: PositionUnit;
 }
 
 export type ExportFormat = 'png' | 'jpeg' | 'webp';

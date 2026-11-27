@@ -1,34 +1,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Image as ImageIcon, Upload, Maximize2, X, Link as LinkIcon, Check, Move, Trash2 } from 'lucide-react';
 import { TileData } from '../types';
-import { optimizeImageFile, isValidImageUrl } from '../utils/imageUtils';
+import { optimizeImageFile, isValidImageUrl, getProxiedUrl } from '../utils/imageUtils';
+import { getImageTransformCss } from '../utils/cropUtils';
 
 interface GridTileProps {
   tile: TileData;
   isDarkMode: boolean;
   isLinking: boolean;
+  isActionsOpen: boolean;
   onLocalUpload: (id: number, dataUrl: string) => void;
   onAssignUrl: (id: number, url: string) => void;
   onSwapTiles: (sourceId: number, targetId: number) => void;
   onRemoveImage: (id: number) => void;
   onOpenCropModal: (id: number) => void;
   onToggleLink: (id: number) => void;
+  onToggleActions: (id: number) => void;
   onClose: () => void;
 }
 
-const safeString = (val: any): string => (val === null || val === undefined ? '' : String(val));
+const safeString = (val: unknown): string => (val === null || val === undefined ? '' : String(val));
 
-const getProxiedUrl = (url: string | null) => {
-  const safeUrl = safeString(url).trim();
-  if (!safeUrl || safeUrl === 'undefined' || safeUrl === 'null') return null;
-  if (safeUrl.startsWith('data:') || safeUrl.startsWith('blob:')) return safeUrl;
-  return `https://images.weserv.nl/?url=${encodeURIComponent(safeUrl)}&default=${encodeURIComponent(safeUrl)}`;
-};
-
-const GridTile: React.FC<GridTileProps> = ({ 
-  tile, isDarkMode, isLinking, onLocalUpload, 
-  onAssignUrl, onSwapTiles, onRemoveImage, onOpenCropModal, onToggleLink, 
-  onClose
+const GridTile: React.FC<GridTileProps> = ({
+  tile, isDarkMode, isLinking, isActionsOpen, onLocalUpload,
+  onAssignUrl, onSwapTiles, onRemoveImage, onOpenCropModal, onToggleLink,
+  onToggleActions, onClose
 }) => {
   const [isBroken, setIsBroken] = useState(false);
   const [pastedUrl, setPastedUrl] = useState('');
@@ -36,10 +32,14 @@ const GridTile: React.FC<GridTileProps> = ({
   const [isDragTarget, setIsDragTarget] = useState(false);
   const [isFileDropTarget, setIsFileDropTarget] = useState(false);
   const [isTouchSwapping, setIsTouchSwapping] = useState(false);
-  
+
   const longPressTimer = useRef<number | null>(null);
   const tileRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setIsBroken(false);
+  }, [tile.imageUrl]);
 
   useEffect(() => {
     return () => { if (longPressTimer.current) window.clearTimeout(longPressTimer.current); };
@@ -68,7 +68,7 @@ const GridTile: React.FC<GridTileProps> = ({
       const touch = e.changedTouches[0];
       const elements = document.elementsFromPoint(touch.clientX, touch.clientY);
       const targetTile = elements.find(el => el.hasAttribute('data-tile-id') && el !== tileRef.current);
-      
+
       if (targetTile) {
         const targetId = parseInt(targetTile.getAttribute('data-tile-id') || '', 10);
         if (!isNaN(targetId)) onSwapTiles(tile.id, targetId);
@@ -88,10 +88,16 @@ const GridTile: React.FC<GridTileProps> = ({
   const safeImageUrl = getProxiedUrl(tile.imageUrl);
 
   return (
-    <div 
+    <div
       ref={tileRef}
       data-tile-id={tile.id}
+      data-testid={`grid-tile-${tile.id}`}
       className={`relative group aspect-square overflow-hidden transition-all duration-300 ${isDarkMode ? 'bg-black' : 'bg-white'} ${isFileDropTarget ? 'ring-4 ring-emerald-500 z-50 scale-[0.98]' : isDragTarget || isTouchSwapping ? `ring-4 ring-inset z-50 scale-[0.96] ${isDarkMode ? 'ring-white' : 'ring-black'}` : ''} ${isTouchSwapping ? 'opacity-70 rotate-1' : ''}`}
+      onClick={(e) => {
+        if (isLinking || isTouchSwapping) return;
+        e.stopPropagation();
+        onToggleActions(tile.id);
+      }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
@@ -180,22 +186,23 @@ const GridTile: React.FC<GridTileProps> = ({
         </div>
       )}
 
-      <div className={`absolute inset-0 flex items-center justify-center pointer-events-none ${isDarkMode ? 'bg-[#050505]' : 'bg-[#FAFAFA]'}`}>
+      <div className={`absolute inset-0 pointer-events-none ${isDarkMode ? 'bg-[#050505]' : 'bg-[#FAFAFA]'}`}>
         {safeImageUrl && !isBroken ? (
           <img
+            data-testid={`grid-tile-img-${tile.id}`}
             src={safeImageUrl}
             onError={() => setIsBroken(true)}
             referrerPolicy="no-referrer"
             crossOrigin="anonymous"
             className="w-full h-full object-contain select-none"
-            style={{ 
-              transform: `translate(${tile.positionX || 0}px, ${tile.positionY || 0}px) scale(${tile.scale || 1})`, 
-              transformOrigin: 'center',
+            style={{
+              transform: getImageTransformCss(tile),
+              transformOrigin: 'center center',
               display: 'block'
             }}
           />
         ) : (
-          <div className={`flex flex-col items-center opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>
+          <div className={`w-full h-full flex flex-col items-center justify-center opacity-20 ${isDarkMode ? 'text-white' : 'text-black'}`}>
             <ImageIcon className="w-8 h-8 sm:w-14 sm:h-14 stroke-[0.5px]" />
             {isBroken && <p className="text-[6px] sm:text-[7px] font-black uppercase mt-2 text-red-500">Error</p>}
           </div>
@@ -203,20 +210,30 @@ const GridTile: React.FC<GridTileProps> = ({
       </div>
 
       {!isLinking && (
-        <div data-export-hide="true" className={`absolute inset-0 opacity-0 group-hover:opacity-100 transition-all flex flex-col items-center justify-center gap-2 sm:gap-6 z-20 ${isDarkMode ? 'bg-black/90' : 'bg-white/90'}`}>
+        <div
+          data-export-hide="true"
+          data-testid={`grid-tile-overlay-${tile.id}`}
+          className={`absolute inset-0 transition-all flex flex-col items-center justify-center gap-2 sm:gap-6 z-20 ${
+            isActionsOpen
+              ? 'opacity-100 pointer-events-auto'
+              : 'opacity-0 pointer-events-none [@media(hover:hover)]:group-hover:opacity-100 [@media(hover:hover)]:group-hover:pointer-events-auto'
+          } ${isDarkMode ? 'bg-black/90' : 'bg-white/90'}`}
+        >
           <div className="flex flex-row justify-center gap-2 sm:gap-4 px-2 sm:px-6">
             {tile.imageUrl ? (
               <>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onOpenCropModal(tile.id); }} 
-                  className={`p-2.5 sm:p-4 rounded-full shadow-2xl transition-all active:scale-90 ${isDarkMode ? 'bg-white text-black hover:bg-zinc-200' : 'bg-black text-white hover:bg-zinc-800'}`} 
+                <button
+                  data-testid={`tile-crop-btn-${tile.id}`}
+                  onClick={(e) => { e.stopPropagation(); onOpenCropModal(tile.id); }}
+                  className={`p-2.5 sm:p-4 rounded-full shadow-2xl transition-all active:scale-90 ${isDarkMode ? 'bg-white text-black hover:bg-zinc-200' : 'bg-black text-white hover:bg-zinc-800'}`}
                   title="Crop / Adjust Image"
                 >
                   <Maximize2 className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onRemoveImage(tile.id); }} 
-                  className={`p-2.5 sm:p-4 border border-red-500/50 rounded-full shadow-2xl transition-all active:scale-90 ${isDarkMode ? 'bg-red-950/40 text-red-400' : 'bg-red-50 text-red-600'}`} 
+                <button
+                  data-testid={`tile-remove-btn-${tile.id}`}
+                  onClick={(e) => { e.stopPropagation(); onRemoveImage(tile.id); }}
+                  className={`p-2.5 sm:p-4 border border-red-500/50 rounded-full shadow-2xl transition-all active:scale-90 ${isDarkMode ? 'bg-red-950/40 text-red-400' : 'bg-red-50 text-red-600'}`}
                   title="Remove Image"
                 >
                   <Trash2 className="w-4 h-4 sm:w-5 sm:h-5" />
@@ -224,16 +241,18 @@ const GridTile: React.FC<GridTileProps> = ({
               </>
             ) : (
               <>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); onToggleLink(tile.id); }} 
-                  className={`p-2.5 sm:p-4 border rounded-full transition-all active:scale-90 ${isDarkMode ? 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800' : 'bg-zinc-100 text-black border-zinc-200 hover:bg-zinc-200'}`} 
+                <button
+                  data-testid={`tile-link-btn-${tile.id}`}
+                  onClick={(e) => { e.stopPropagation(); onToggleLink(tile.id); }}
+                  className={`p-2.5 sm:p-4 border rounded-full transition-all active:scale-90 ${isDarkMode ? 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800' : 'bg-zinc-100 text-black border-zinc-200 hover:bg-zinc-200'}`}
                   title="Paste Link"
                 >
                   <LinkIcon className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
-                <button 
-                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }} 
-                  className={`p-2.5 sm:p-4 border rounded-full transition-all active:scale-90 ${isDarkMode ? 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800' : 'bg-zinc-100 text-black border-zinc-200 hover:bg-zinc-200'}`} 
+                <button
+                  data-testid={`tile-upload-btn-${tile.id}`}
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                  className={`p-2.5 sm:p-4 border rounded-full transition-all active:scale-90 ${isDarkMode ? 'bg-zinc-900 text-white border-zinc-800 hover:bg-zinc-800' : 'bg-zinc-100 text-black border-zinc-200 hover:bg-zinc-200'}`}
                   title="Upload Local"
                 >
                   <Upload className="w-4 h-4 sm:w-5 sm:h-5" />

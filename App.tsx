@@ -5,8 +5,9 @@ import { toPng, toJpeg, toCanvas } from 'html-to-image';
 import GridTile from './components/GridTile';
 import { CropModal } from './components/CropModal';
 import { GridTitleControl } from './components/GridTitleControl';
-import { TileData, ExportConfig, NamingScheme, ExportFormat } from './types';
+import { TileData, ExportConfig, NamingScheme, ExportFormat, PositionUnit } from './types';
 import { optimizeImageFile, isValidImageUrl } from './utils/imageUtils';
+import { calculateSafePixelRatio, generateExportFilename, resolveExportedFileFormat } from './utils/exportUtils';
 
 const DB_NAME = 'Retcon3x3DB';
 const STORE_NAME = 'stateStore';
@@ -69,6 +70,7 @@ const getInitialTiles = (): TileData[] => Array.from({ length: 9 }, (_, i) => ({
   scale: 1,
   positionX: 0,
   positionY: 0,
+  positionUnit: 'percent',
 }));
 
 export default function App() {
@@ -92,7 +94,7 @@ export default function App() {
     }, 5000);
     return () => clearTimeout(timer);
   }, [error]);
-  
+
   const [exportConfig, setExportConfig] = useState<ExportConfig>({
     format: 'png',
     quality: 0.95,
@@ -100,7 +102,7 @@ export default function App() {
   });
 
   const [activeTileId, setActiveTileId] = useState<number | null>(null);
-  const [activeMode, setActiveMode] = useState<'link' | 'adjust' | 'crop' | null>(null);
+  const [activeMode, setActiveMode] = useState<'link' | 'actions' | 'crop' | null>(null);
   
   const gridRef = useRef<HTMLDivElement>(null);
   const bulkFileRef = useRef<HTMLInputElement>(null);
@@ -127,7 +129,8 @@ export default function App() {
         isLoading: false,
         scale: 1,
         positionX: 0,
-        positionY: 0
+        positionY: 0,
+        positionUnit: 'percent',
       })));
       setGridTitle('ARCHITECTURAL MINIMALISM');
       setShowTitleOverlay(true);
@@ -165,7 +168,7 @@ export default function App() {
   }, [tiles, gridTitle, showTitleOverlay, gridColor, isDarkMode, exportConfig, isRestored]);
 
   const updateTile = useCallback((id: number, updates: Partial<TileData>) => {
-    setTiles(prev => prev.map(t => 
+    setTiles(prev => prev.map(t =>
       t.id === id ? { ...t, ...updates } : t
     ));
   }, []);
@@ -177,25 +180,33 @@ export default function App() {
     }
   };
 
-  const handleUpdateTransform = (id: number, transform: { scale?: number, x?: number, y?: number }) => {
-    const tile = tiles.find(t => t.id === id);
-    if (!tile) return;
-    updateTile(id, {
-      scale: transform.scale ?? tile.scale,
-      positionX: transform.x ?? tile.positionX,
-      positionY: transform.y ?? tile.positionY
-    });
+  const handleUpdateTransform = (
+    id: number,
+    transform: { scale?: number; x?: number; y?: number; positionUnit?: PositionUnit }
+  ) => {
+    setTiles(prev => prev.map(t => (
+      t.id === id
+        ? {
+            ...t,
+            scale: transform.scale ?? t.scale,
+            positionX: transform.x ?? t.positionX,
+            positionY: transform.y ?? t.positionY,
+            positionUnit: transform.positionUnit ?? t.positionUnit,
+          }
+        : t
+    )));
   };
 
   const handleAssignUrl = (id: number, url: string) => {
     const safeUrl = safeString(url).trim();
     if (!safeUrl || !isValidImageUrl(safeUrl)) return;
-    updateTile(id, { 
-      imageUrl: safeUrl, 
+    updateTile(id, {
+      imageUrl: safeUrl,
       isLoading: false,
       scale: 1,
       positionX: 0,
-      positionY: 0
+      positionY: 0,
+      positionUnit: 'percent',
     });
     setActiveTileId(null);
     setActiveMode(null);
@@ -212,102 +223,72 @@ export default function App() {
       const sourceTile = { ...newTiles[sourceIdx] };
       const targetTile = { ...newTiles[targetIdx] };
 
-      newTiles[sourceIdx] = { 
-        ...sourceTile, 
-        imageUrl: targetTile.imageUrl, 
-        scale: targetTile.scale, 
-        positionX: targetTile.positionX, 
-        positionY: targetTile.positionY, 
-        isLoading: targetTile.isLoading 
+      newTiles[sourceIdx] = {
+        ...sourceTile,
+        imageUrl: targetTile.imageUrl,
+        scale: targetTile.scale,
+        positionX: targetTile.positionX,
+        positionY: targetTile.positionY,
+        positionUnit: targetTile.positionUnit,
+        isLoading: targetTile.isLoading
       };
-      newTiles[targetIdx] = { 
-        ...targetTile, 
-        imageUrl: sourceTile.imageUrl, 
-        scale: sourceTile.scale, 
-        positionX: sourceTile.positionX, 
-        positionY: sourceTile.positionY, 
-        isLoading: sourceTile.isLoading 
+      newTiles[targetIdx] = {
+        ...targetTile,
+        imageUrl: sourceTile.imageUrl,
+        scale: sourceTile.scale,
+        positionX: sourceTile.positionX,
+        positionY: sourceTile.positionY,
+        positionUnit: sourceTile.positionUnit,
+        isLoading: sourceTile.isLoading
       };
       return newTiles;
     });
   }, []);
 
   const handleRemoveImage = (id: number) => {
-    updateTile(id, { imageUrl: null, scale: 1, positionX: 0, positionY: 0, isLoading: false });
-  };
-
-  const generateFilename = () => {
-    try {
-      const now = new Date();
-      const YYYY = now.getFullYear();
-      const MM = String(now.getMonth() + 1).padStart(2, '0');
-      const DD = String(now.getDate()).padStart(2, '0');
-      
-      const safeTitle = safeString(gridTitle).trim();
-      const titleSlug = safeTitle.replace(/[^a-zA-Z0-9_-]+/g, '_').replace(/^_+|_+$/g, '') || 'UNTITLED';
-      const ts = now.getTime();
-
-      let base = '';
-      const scheme = exportConfig.namingScheme;
-      const format = exportConfig.format;
-
-      switch (scheme) {
-        case 'TIMESTAMP': base = `GRID_${ts}`; break;
-        case 'MINIMAL': base = `${titleSlug}_3X3`; break;
-        case 'CHRONO': base = `${YYYY}${MM}${DD}_${titleSlug}`; break;
-        default: base = `RETCON_${YYYY}${MM}_${titleSlug}`; break;
-      }
-      return `${base}.${format}`;
-    } catch (e) {
-      return `RETCON_GRID_${Date.now()}.${exportConfig.format}`;
-    }
+    updateTile(id, {
+      imageUrl: null,
+      scale: 1,
+      positionX: 0,
+      positionY: 0,
+      positionUnit: 'percent',
+      isLoading: false,
+    });
+    setActiveTileId(null);
+    setActiveMode(null);
   };
 
   const downloadGrid = async () => {
     const gridNode = gridRef.current;
     if (!gridNode || isExporting) return;
-    
+
     setIsExporting(true);
+    setIsSettingsOpen(false);
     setActiveTileId(null);
     setActiveMode(null);
 
     try {
       setExportMessage('Optimizing assets...');
       await new Promise(r => setTimeout(r, 600));
-      
-      const filename = generateFilename();
+
       const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      
+
       setExportMessage('Generating high-res grid...');
-      
+
       // Calculate safe pixel ratio to ensure rendered canvas never exceeds WebKit / iOS Safari limits:
       // 1. Max single dimension: 4096px
       // 2. Max total canvas area: 16,777,216 px (4096 x 4096)
       const elementWidth = gridNode.offsetWidth || 800;
       const elementHeight = gridNode.offsetHeight || elementWidth;
-      let targetPixelRatio = isMobile ? 1.5 : 2;
-
-      // Single dimension clamp
-      const maxDimension = Math.max(elementWidth, elementHeight);
-      if (maxDimension * targetPixelRatio > 4096) {
-        targetPixelRatio = Math.min(targetPixelRatio, 4096 / maxDimension);
-      }
-
-      // Total area clamp (16,777,216 px max on WebKit / iOS)
-      const currentArea = (elementWidth * targetPixelRatio) * (elementHeight * targetPixelRatio);
-      if (currentArea > 16777216) {
-        targetPixelRatio = Math.min(targetPixelRatio, Math.sqrt(16777216 / (elementWidth * elementHeight)));
-      }
-
-      targetPixelRatio = Math.max(1, targetPixelRatio);
+      const targetPixelRatio = calculateSafePixelRatio(elementWidth, elementHeight, isMobile);
 
       const options = {
         quality: exportConfig.quality,
         pixelRatio: targetPixelRatio,
         backgroundColor: gridColor,
         includeQueryParams: true,
-        skipFonts: true, 
-        fontEmbedCSS: '', 
+        skipFonts: true,
+        fontEmbedCSS: '',
         style: {
           transform: 'none',
           borderRadius: '0',
@@ -320,7 +301,7 @@ export default function App() {
           const isButton = tag === 'button';
           const isSvg = tag === 'svg' || (node.classList && node.classList.contains('lucide'));
           const isInput = tag === 'input' || tag === 'textarea';
-          
+
           return !isHidden && !isButton && !isSvg && !isInput;
         }
       };
@@ -334,7 +315,10 @@ export default function App() {
       } else {
         dataUrl = await toPng(gridNode, options);
       }
-      
+
+      const resolvedFormat = resolveExportedFileFormat(exportConfig.format, dataUrl);
+      const filename = generateExportFilename(gridTitle, exportConfig.namingScheme, resolvedFormat);
+
       setExportMessage('Finalizing file...');
       const link = document.createElement('a');
       link.download = filename;
@@ -342,11 +326,11 @@ export default function App() {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      
+
       setTimeout(() => {
         setIsExporting(false);
       }, 500);
-      
+
     } catch (err: any) {
       console.error('Export Failure:', err);
       const isMemoryOrCORS = /canvas|memory|quota|tainted|security|cross-origin/i.test(err?.message || '');
@@ -363,7 +347,7 @@ export default function App() {
     const urls = text.split('\n')
       .map(l => safeString(l).trim())
       .filter(l => isValidImageUrl(l));
-    
+
     if (!urls.length) {
       setError('No valid HTTP, HTTPS, or Base64 image URLs found in the pasted list.');
       return;
@@ -378,13 +362,32 @@ export default function App() {
     const files = Array.from(e.target.files || []) as File[];
     const limitedFiles = files.filter(f => f.type.startsWith('image/')).slice(0, 9);
     if (!limitedFiles.length) return;
-    try {
-      const dataUrls = await Promise.all(limitedFiles.map(file => optimizeImageFile(file)));
-      dataUrls.forEach((url, i) => handleAssignUrl(i, url));
+
+    const results = await Promise.allSettled(limitedFiles.map(file => optimizeImageFile(file)));
+    const validUrls: string[] = [];
+    let failedCount = 0;
+
+    results.forEach((result) => {
+      if (result.status === 'fulfilled') {
+        validUrls.push(result.value);
+      } else {
+        failedCount += 1;
+      }
+    });
+
+    if (validUrls.length > 0) {
+      validUrls.forEach((url, i) => handleAssignUrl(i, url));
       setIsImportModalOpen(false);
-    } catch (err: any) { 
-      setError(err?.message || "Failed to process local images."); 
     }
+
+    if (failedCount > 0) {
+      setError(
+        validUrls.length > 0
+          ? `Loaded ${validUrls.length} image(s), but ${failedCount} file(s) could not be processed.`
+          : 'Failed to process the selected local image(s).'
+      );
+    }
+
     if (bulkFileRef.current) bulkFileRef.current.value = '';
   };
 
@@ -431,7 +434,7 @@ export default function App() {
           <button onClick={() => setIsSettingsOpen(true)} className={`p-2 rounded-sm border transition-all hover:rotate-90 ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-400' : 'bg-zinc-100 border-zinc-200 text-zinc-600'}`} aria-label="Settings">
             <Settings className="w-4 h-4" />
           </button>
-          <button onClick={() => setIsImportModalOpen(true)} className={`flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase border rounded-sm tracking-widest transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800' : 'bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200'}`}>
+          <button onClick={() => setIsImportModalOpen(true)} aria-label="Bulk Import" className={`flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase border rounded-sm tracking-widest transition-all ${isDarkMode ? 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:bg-zinc-800' : 'bg-zinc-100 border-zinc-200 text-zinc-600 hover:bg-zinc-200'}`}>
             <ClipboardList className="w-4 h-4" /> <span className="hidden md:inline">Bulk Import</span>
           </button>
           <button onClick={downloadGrid} className={`flex items-center gap-2 px-6 py-2 text-[10px] font-black uppercase rounded-sm tracking-widest shadow-2xl transition-all hover:scale-105 ${isDarkMode ? 'bg-white text-black' : 'bg-black text-white'}`}>
@@ -468,16 +471,26 @@ export default function App() {
             <div className="grid grid-cols-3 gap-[1px] h-full" style={{ backgroundColor: gridColor }}>
               {tiles.map(tile => (
                 <GridTile
-                  key={tile.id} 
-                  tile={tile} 
+                  key={tile.id}
+                  tile={tile}
                   isDarkMode={isDarkMode}
                   isLinking={activeTileId === tile.id && activeMode === 'link'}
-                  onLocalUpload={handleAssignUrl} 
-                  onAssignUrl={handleAssignUrl} 
-                  onSwapTiles={handleSwapTiles} 
+                  isActionsOpen={activeTileId === tile.id && activeMode === 'actions'}
+                  onLocalUpload={handleAssignUrl}
+                  onAssignUrl={handleAssignUrl}
+                  onSwapTiles={handleSwapTiles}
                   onRemoveImage={handleRemoveImage}
                   onOpenCropModal={(id) => { setActiveTileId(id); setActiveMode('crop'); }}
                   onToggleLink={(id) => { setActiveTileId(id); setActiveMode('link'); }}
+                  onToggleActions={(id) => {
+                    if (activeTileId === id && activeMode === 'actions') {
+                      setActiveTileId(null);
+                      setActiveMode(null);
+                    } else {
+                      setActiveTileId(id);
+                      setActiveMode('actions');
+                    }
+                  }}
                   onClose={() => { setActiveTileId(null); setActiveMode(null); }}
                 />
               ))}

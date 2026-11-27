@@ -27,9 +27,10 @@ export const GridTitleControl: React.FC<GridTitleControlProps> = ({
   // Auto-focus input when opening
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => {
+      const timer = window.setTimeout(() => {
         inputRef.current?.focus();
       }, 50);
+      return () => window.clearTimeout(timer);
     }
   }, [isOpen]);
 

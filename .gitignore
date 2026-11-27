@@ -38,3 +38,8 @@ migrated_prompt_history/
 # Archives & Backups
 *.zip
 
+# Playwright test artifacts
+playwright-report/
+test-results/
+
+

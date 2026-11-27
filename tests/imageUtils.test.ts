@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { isValidImageUrl } from '../utils/imageUtils.ts';
+import { getProxiedUrl, isValidImageUrl } from '../utils/imageUtils.ts';
 
 describe('isValidImageUrl', () => {
   it('accepts valid HTTP and HTTPS image URLs', () => {
@@ -24,5 +24,29 @@ describe('isValidImageUrl', () => {
     assert.equal(isValidImageUrl('ftp://example.com/photo.jpg'), false);
     assert.equal(isValidImageUrl(''), false);
     assert.equal(isValidImageUrl('not a url'), false);
+  });
+});
+
+describe('getProxiedUrl', () => {
+  it('passes data: and blob: URLs through unchanged', () => {
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgo=';
+    assert.equal(getProxiedUrl(dataUrl), dataUrl);
+    assert.equal(getProxiedUrl('blob:http://localhost:3000/abc'), 'blob:http://localhost:3000/abc');
+  });
+
+  it('wraps external HTTP/HTTPS URLs with weserv proxy', () => {
+    const raw = 'https://example.com/poster.jpg?w=600';
+    assert.equal(
+      getProxiedUrl(raw),
+      `https://images.weserv.nl/?url=${encodeURIComponent(raw)}&default=${encodeURIComponent(raw)}`
+    );
+  });
+
+  it('returns null for empty or sentinel values', () => {
+    assert.equal(getProxiedUrl(null), null);
+    assert.equal(getProxiedUrl(undefined), null);
+    assert.equal(getProxiedUrl('   '), null);
+    assert.equal(getProxiedUrl('undefined'), null);
+    assert.equal(getProxiedUrl('null'), null);
   });
 });
