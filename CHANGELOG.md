@@ -2,6 +2,18 @@
 
 All notable changes to **RETCON 3x3** are documented in this file.
 
+## [v1.2.2] - 2026-11-27
+
+### Fixed
+- **Viewport-Independent Crop Alignment**: Switched saved crop pan coordinates from raw modal pixels to tile-relative percentages (`translate(X%, Y%)`) with backward compatibility for legacy saved sessions, switched drag calculation to `clientWidth`, rounded `fillScale` up to prevent hairline bars, and matched `GridTile`'s `<img>` layout box to `CropModal`'s exact 1:1 square geometry so framing stays identical across desktop, mobile, window resizes, and reloads.
+- **Broken Image Recovery**: Reset `GridTile` broken-image error state whenever `tile.imageUrl` changes via swaps, bulk import, or image removal.
+- **Mobile Touch Overlay Safety**: Prevented invisible tile action overlays from intercepting touches, scoped hover reveal to `@media(hover:hover)`, added tap-to-toggle tile actions, and added an `aria-label` to the mobile Bulk Import button.
+- **Crop Modal Gestures & Zoom Bounds**: Replaced the passive React wheel handler with a native `{ passive: false }` listener, unified zoom bounds (`0.4x–6x+`) across slider/wheel/pinch/buttons, clamped pan live during pinch-zoom, disabled transform transition lag while dragging, and cleaned up unmount timers.
+- **Export & Bulk Upload Resilience**: Switched bulk local uploads to `Promise.allSettled` so one unreadable file does not abort valid images, closed the Settings drawer on export, and matched the downloaded file extension if a browser falls back from WebP to PNG.
+
+### Added
+- **Automated Unit & Playwright E2E Test Suite**: Added 25 unit tests (`npm test`) covering crop math, export utilities, and URL helpers, plus 6 Playwright Chromium E2E tests (`npm run test:e2e`) wired into GitHub Actions CI.
+
 ## [v1.2.1] - 2026-11-27
 
 ### Added
