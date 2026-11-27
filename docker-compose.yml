@@ -1,0 +1,7 @@
+services:
+  app:
+    image: ghcr.io/owlsoda/retcon-3x3:latest
+    container_name: retcon-3x3
+    ports:
+      - "${RETCON_PORT:-7826}:80"
+    restart: unless-stopped

@@ -1,0 +1,15 @@
+node_modules
+dist
+.git
+.github
+.gitignore
+.env
+.env.*
+.dev.env.json
+.dev.pid
+docs
+migrated_prompt_history
+tests
+*.md
+*.zip
+docker-compose*.yml
