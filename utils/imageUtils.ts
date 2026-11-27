@@ -25,6 +25,18 @@ export function isValidImageUrl(urlString: string): boolean {
 }
 
 /**
+ * Returns a CORS-friendly proxied URL for external images while passing through
+ * local data: and blob: URLs untouched.
+ */
+export function getProxiedUrl(url: string | null | undefined): string | null {
+  if (url === null || url === undefined) return null;
+  const safeUrl = String(url).trim();
+  if (!safeUrl || safeUrl === 'undefined' || safeUrl === 'null') return null;
+  if (safeUrl.startsWith('data:') || safeUrl.startsWith('blob:')) return safeUrl;
+  return `https://images.weserv.nl/?url=${encodeURIComponent(safeUrl)}&default=${encodeURIComponent(safeUrl)}`;
+}
+
+/**
  * Optimizes an uploaded image file before storing it in state/IndexedDB.
  * Scales down images larger than maxDimension (default 2560px) to prevent
  * iOS Safari canvas crash and excessive memory consumption while keeping

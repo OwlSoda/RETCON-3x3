@@ -85,6 +85,9 @@ npm test
 # Build for production
 npm run build
 
+# Run end-to-end browser tests (Playwright)
+npm run test:e2e
+
 # Preview production build
 npm run preview
 ```
